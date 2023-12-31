@@ -45,6 +45,8 @@ const (
 type Assertion struct {
 	// Path is the path of gjson to the value to be asserted.
 	Path string
+	// Name is the name of the Envoy config.
+	Name string
 	// CheckType is the type of assertion to be made.
 	CheckType CheckType
 	// ExpectEnvoyConfig is the expected value of the Envoy config.
@@ -58,6 +60,33 @@ func AssertEnvoyConfig(t *testing.T, timeoutConfig cfg.TimeoutConfig, expected A
 	options := config.NewDefaultGetEnvoyConfigOptions()
 	options.PodNamespace = expected.TargetNamespace
 	waitForEnvoyConfig(t, timeoutConfig, options, expected)
+}
+
+// GetConfigByName gets the Envoy config by name.
+func GetConfigByName(t *testing.T, prefixPath string, name string, targetNamespace string) ([]string, error) {
+	options := config.NewDefaultGetEnvoyConfigOptions()
+	options.PodNamespace = targetNamespace
+	allEnvoyConfig := ""
+	err := wait.Poll(1*time.Second, 10*time.Second, func() (bool, error) {
+		out, err := config.GetEnvoyConfig(options)
+		if err != nil {
+			return false, err
+		}
+		allEnvoyConfig = string(out)
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	envoyConfigByName := make([]string, 0)
+	gjson.Get(allEnvoyConfig, prefixPath).ForEach(func(key, value gjson.Result) bool {
+		gjson.Get(value.String(), fmt.Sprintf(`#(name=="%s").config`, name)).ForEach(func(key, value gjson.Result) bool {
+			envoyConfigByName = append(envoyConfigByName, value.String())
+			return true
+		})
+		return true
+	})
+	return envoyConfigByName, nil
 }
 
 // waitForEnvoyConfig waits for the Envoy config to be ready and asserts it.
